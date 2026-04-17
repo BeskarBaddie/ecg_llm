@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environments
+venv/
+.env
+
+# macOS
+.DS_Store
+
+# Data (DO NOT TRACK)
+data/
+*.csv
+*.jsonl
+
+# Large files
+*.npy
+*.pt
+
+# Logs / outputs
+outputs/
+logs/
