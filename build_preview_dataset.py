@@ -29,11 +29,11 @@ from utils.preprocess import preprocess_ecg  # noqa: E402
 # ---------------------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------------------
-TARGET_N = 100
+TARGET_N = 1000
 PREFER = "lr"  # use records100 for now while records500 is still downloading
 FS_ORIGINAL = 100  # PTB-XL records100 is 100 Hz
 
-OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_100.jsonl"
+OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_1000.jsonl"
 
 
 def load_csfm():
