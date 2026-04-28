@@ -1,4 +1,5 @@
 from __future__ import annotations
+import random
 
 import json
 import sys
@@ -29,11 +30,11 @@ from utils.preprocess import preprocess_ecg  # noqa: E402
 # ---------------------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------------------
-TARGET_N = 1000
-PREFER = "lr"  # use records100 for now while records500 is still downloading
-FS_ORIGINAL = 100  # PTB-XL records100 is 100 Hz
+TARGET_N = 2000
+PREFER = "hr"  # use records500
+FS_ORIGINAL = 500  # PTB-XL records500 is 500 Hz
 
-OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_1000.jsonl"
+OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_2000_sv.jsonl"
 
 
 def load_csfm():
@@ -80,6 +81,11 @@ def find_valid_samples(samples: List[Dict[str, Any]], metadata, target_n: int) -
 def main():
     print("Loading ECG-QA...")
     samples = load_ecgqa_json(ECG_QA_TRAIN)
+    samples = [s for s in samples if s.get("question_type") == "single-verify"] # only use single-verify for now
+    print(f"After filtering: {len(samples)} samples")
+    print("Shuffling dataset...")
+    random.seed(42)  # reproducibility
+    random.shuffle(samples)
     print(f"Loaded {len(samples)} ECG-QA samples")
 
     print("Loading PTB-XL metadata...")
