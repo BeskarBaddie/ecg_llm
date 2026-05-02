@@ -6,6 +6,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report,confusion_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from sentence_transformers import SentenceTransformer
+
 # -----------------------------
 # CONFIG
 # -----------------------------
@@ -71,18 +73,24 @@ print("Accuracy:", accuracy_score(y_test, y_pred_emb))
 print(classification_report(y_test, y_pred_emb))
 
 # -----------------------------
-# MODEL 2: EMBEDDING + QUESTION
+
+# MODEL 2: EMBEDDING + QUESTION (Sentence Embeddings)
+
 # -----------------------------
-print("\n=== MODEL 2: EMBEDDING + QUESTION ===")
 
-vectorizer = TfidfVectorizer(max_features=1000)
+print("\n=== MODEL 2: EMBEDDING + QUESTION (SentenceTransformer) ===")
 
-X_train_q = vectorizer.fit_transform(q_train)
-X_test_q = vectorizer.transform(q_test)
+print("Loading sentence transformer model...")
 
-# Convert sparse → dense
-X_train_q = X_train_q.toarray()
-X_test_q = X_test_q.toarray()
+sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+print("Encoding training questions...")
+
+X_train_q = sentence_model.encode(q_train)
+
+print("Encoding test questions...")
+
+X_test_q = sentence_model.encode(q_test)
 
 # Concatenate
 X_train_combined = np.concatenate([X_train_emb, X_train_q], axis=1)
