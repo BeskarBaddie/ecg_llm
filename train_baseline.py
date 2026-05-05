@@ -88,6 +88,8 @@ print("Encoding training questions...")
 
 X_train_q = sentence_model.encode(q_train)
 
+print(X_train_q.shape)
+
 print("Encoding test questions...")
 
 X_test_q = sentence_model.encode(q_test)
@@ -100,7 +102,16 @@ clf_combined = LogisticRegression(max_iter=1000, class_weight="balanced")
 clf_combined.fit(X_train_combined, y_train)
 
 y_pred_combined = clf_combined.predict(X_test_combined)
+y_pred_combined_train = clf_combined.predict(X_train_combined)
 
 print("Accuracy:", accuracy_score(y_test, y_pred_combined))
 print(classification_report(y_test, y_pred_combined))
 print(confusion_matrix(y_test, y_pred_combined))
+print("Number of questions: ", len(q_test))
+
+print("-------------Use Train Set-------------")
+
+print("Accuracy:", accuracy_score(y_train, y_pred_combined_train))
+print(classification_report(y_train, y_pred_combined_train))
+print(confusion_matrix(y_train, y_pred_combined_train))
+print("Number of questions: ", len(q_train))
