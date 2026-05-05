@@ -100,6 +100,7 @@ yes, no, or not sure.
 
     print(f"\n[{i}] ECG ID: {ecg_id}")
     print("Q:", question)
+    print("ECG Summary:", ecg_description)
     print("True:", true_answer)
     print("Pred:", pred)
 
