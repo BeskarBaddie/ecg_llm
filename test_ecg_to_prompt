@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import random
+from typing import Any
+
+import numpy as np
+
+from src.config import ECG_QA_TRAIN, PTBXL_METADATA
+from src.ecgqa_loader import load_ecgqa_json
+from src.ptbxl_loader import load_ptbxl_metadata, load_ecg_signal
+from src.ecg_feature_extractor import (
+    extract_basic_ecg_features,
+    extract_12lead_basic_features,
+)
+
+
+VALID_ANSWERS = {"yes", "no", "not sure"}
+
+
+def normalize_answer(answer: Any) -> str:
+    if isinstance(answer, list):
+        if not answer:
+            return ""
+        answer = answer[0]
+    return str(answer).strip().lower()
+
+
+def main() -> None:
+    print("Loading ECG-QA...")
+    samples = load_ecgqa_json(ECG_QA_TRAIN)
+
+    filtered = []
+    for s in samples:
+        if s.get("question_type") != "single-verify":
+            continue
+        ans = normalize_answer(s.get("answer"))
+        if ans in VALID_ANSWERS:
+            filtered.append(s)
+
+    print(f"Filtered samples: {len(filtered)}")
+
+    sample = random.choice(filtered)
+    ecg_id = int(sample["ecg_id"][0])
+    question = sample["question"]
+    true_answer = normalize_answer(sample["answer"])
+
+    print("\nSelected sample:")
+    print("ECG ID:", ecg_id)
+    print("Question:", question)
+    print("Answer:", true_answer)
+
+    print("\nLoading PTB-XL metadata...")
+    metadata = load_ptbxl_metadata(PTBXL_METADATA)
+
+    # Try HR first, then LR fallback
+    try:
+        signal = load_ecg_signal(ecg_id, metadata=metadata, prefer="hr")
+        fs = 500
+        print("Loaded HR signal")
+    except Exception as e_hr:
+        print("HR load failed, trying LR fallback:", e_hr)
+        signal = load_ecg_signal(ecg_id, metadata=metadata, prefer="lr")
+        fs = 100
+        print("Loaded LR signal")
+
+    signal = np.asarray(signal, dtype=np.float32)
+    print("Signal shape:", signal.shape)
+    print("Sampling rate:", fs)
+
+    # Use Lead II for a quick single-lead test
+    lead_ii = signal[1]
+    print("\nRunning basic feature extraction on Lead II...")
+    lead_features = extract_basic_ecg_features(lead_ii, fs=fs)
+
+    print("\nLead II basic features:")
+    for k, v in lead_features.items():
+        print(f"{k}: {v}")
+
+    print("\nRunning 12-lead feature wrapper...")
+    all_features = extract_12lead_basic_features(signal, fs=fs)
+
+    print("\nLeads extracted:", list(all_features.keys()))
+    print("Lead II feature keys:", list(all_features["II"].keys()))
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()
