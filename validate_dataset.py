@@ -10,8 +10,8 @@ import numpy as np
 # ---------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------
-DATA_PATH = Path("outputs/ecgqa_csfm_preview_2000_sv.jsonl")
-REPORT_PATH = Path("outputs/ecgqa_csfm_2000_sv_validation_report.json")
+DATA_PATH = Path("outputs/ecgqa_csfm_preview_10000_sv.jsonl")
+REPORT_PATH = Path("outputs/ecgqa_csfm_10000_sv_validation_report.json")
 
 EXPECTED_EMBED_DIM = 768
 EXPECTED_SIGNAL_SHAPE = [12, 2500]
