@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -7,7 +8,6 @@ from typing import Any, Dict, List, Tuple
 import joblib
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -17,13 +17,39 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
+try:
+    from xgboost import XGBClassifier
+except ImportError as exc:
+    XGBClassifier = None
+    _XGB_IMPORT_ERROR = exc
+else:
+    _XGB_IMPORT_ERROR = None
+
+
+# -----------------------------
+# CONFIG
+# -----------------------------
 DATA_PATH = Path("outputs/unique_ecg_dataset.jsonl")
-OUTPUT_MODEL_PATH = Path("outputs/non_diagnostic_t_abnormalities_interpreter.joblib")
-
 TARGET_ATTRIBUTE = "non-diagnostic t abnormalities"
 
 
+def make_output_model_path(target_attribute: str, classifier_name: str) -> Path:
+    slug = (
+        target_attribute.lower()
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("(", "")
+        .replace(")", "")
+        .replace(",", "")
+    )
+    return Path(f"outputs/{slug}_{classifier_name}_interpreter.joblib")
+
+
+# -----------------------------
+# TEXT NORMALISATION
+# -----------------------------
 def normalize_text(x: Any) -> str:
     if isinstance(x, list):
         if not x:
@@ -32,7 +58,14 @@ def normalize_text(x: Any) -> str:
     return str(x).strip().lower()
 
 
+# -----------------------------
+# DATA LOADING
+# -----------------------------
 def load_unique_ecg_dataset(path: Path, target_attribute: str) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build one sample per unique ECG.
+    Label = 1 if the ECG has the target semantic attribute, else 0.
+    """
     if not path.exists():
         raise FileNotFoundError(f"Dataset file not found: {path}")
 
@@ -53,6 +86,7 @@ def load_unique_ecg_dataset(path: Path, target_attribute: str) -> Tuple[np.ndarr
                 continue
 
             ecg_id = int(ecg_id)
+
             embedding = row.get("embedding")
             if embedding is None:
                 continue
@@ -74,8 +108,87 @@ def load_unique_ecg_dataset(path: Path, target_attribute: str) -> Tuple[np.ndarr
     return X, y
 
 
+# -----------------------------
+# CLASSIFIER FACTORY
+# -----------------------------
+def build_classifier(name: str, y_train: np.ndarray | None = None):
+    name = name.lower().strip()
+
+    if name == "logreg":
+        return LogisticRegression(
+            max_iter=2000,
+            class_weight="balanced",
+            random_state=42,
+        )
+
+    if name == "svm":
+        return SVC(
+            kernel="linear",
+            class_weight="balanced",
+            probability=True,
+            random_state=42,
+        )
+
+    if name == "xgb":
+        if XGBClassifier is None:
+            raise ImportError(
+                "xgboost is not installed. Install it with: pip install xgboost"
+            ) from _XGB_IMPORT_ERROR
+
+        if y_train is None:
+            raise ValueError("y_train is required for xgb so we can compute scale_pos_weight")
+
+        n_pos = int(np.sum(y_train == 1))
+        n_neg = int(np.sum(y_train == 0))
+        scale_pos_weight = n_neg / max(n_pos, 1)
+
+        return XGBClassifier(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.0,
+            reg_lambda=1.0,
+            objective="binary:logistic",
+            eval_metric="logloss",
+            random_state=42,
+            scale_pos_weight=scale_pos_weight,
+        )
+
+    raise ValueError("Unknown classifier. Use one of: logreg, svm, xgb.")
+
+
+def print_metrics(title: str, y_true, y_pred, y_prob=None) -> None:
+    print(f"\n=== {title} ===")
+    print("Accuracy:", accuracy_score(y_true, y_pred))
+
+    if y_prob is not None and len(np.unique(y_true)) > 1:
+        print("ROC AUC:", roc_auc_score(y_true, y_prob))
+        print("Average Precision:", average_precision_score(y_true, y_prob))
+
+    print(classification_report(y_true, y_pred, zero_division=0))
+    print(confusion_matrix(y_true, y_pred))
+
+
+# -----------------------------
+# MAIN
+# -----------------------------
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--classifier",
+        type=str,
+        default="svm",
+        choices=["logreg", "svm", "xgb"],
+        help="Classifier to use on top of the CSFM embeddings.",
+    )
+    args = parser.parse_args()
+
+    output_model_path = make_output_model_path(TARGET_ATTRIBUTE, args.classifier)
+
     print(f"Target attribute: {TARGET_ATTRIBUTE}")
+    print(f"Using classifier: {args.classifier}")
 
     X, y = load_unique_ecg_dataset(DATA_PATH, TARGET_ATTRIBUTE)
     print("Unique ECGs:", X.shape[0])
@@ -101,33 +214,29 @@ def main() -> None:
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    clf = SVC(
-    kernel="linear",
-    class_weight="balanced",
-    probability=True,
-    random_state=42,
-)
+    clf = build_classifier(args.classifier, y_train=y_train)
     clf.fit(X_train_scaled, y_train)
 
     y_pred = clf.predict(X_test_scaled)
-    y_prob = clf.predict_proba(X_test_scaled)[:, 1]
 
-    print("\n=== TEST RESULTS ===")
-    print("Accuracy:", accuracy_score(y_test, y_pred))
-    print("ROC AUC:", roc_auc_score(y_test, y_prob))
-    print("Average Precision:", average_precision_score(y_test, y_prob))
-    print(classification_report(y_test, y_pred, zero_division=0))
-    print(confusion_matrix(y_test, y_pred))
+    y_prob = None
+    if hasattr(clf, "predict_proba"):
+        try:
+            y_prob = clf.predict_proba(X_test_scaled)[:, 1]
+        except Exception:
+            y_prob = None
 
-    # Save model bundle for later prompt generation
+    print_metrics("TEST RESULTS", y_test, y_pred, y_prob=y_prob)
+
     bundle = {
         "target_attribute": TARGET_ATTRIBUTE,
+        "classifier_name": args.classifier,
         "scaler": scaler,
         "model": clf,
     }
-    OUTPUT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(bundle, OUTPUT_MODEL_PATH)
-    print(f"\nSaved model to: {OUTPUT_MODEL_PATH}")
+    output_model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(bundle, output_model_path)
+    print(f"\nSaved model to: {output_model_path}")
 
 
 if __name__ == "__main__":
