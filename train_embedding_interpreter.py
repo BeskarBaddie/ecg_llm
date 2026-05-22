@@ -31,20 +31,22 @@ else:
 # -----------------------------
 # CONFIG
 # -----------------------------
-DATA_PATH = Path("outputs/unique_ecg_dataset.jsonl")
-TARGET_ATTRIBUTE = "non-diagnostic t abnormalities"
+ATTRIBUTE_DATA_PATH = Path("outputs/unique_ecg_dataset.jsonl")
+SCP_DATA_PATH = Path("outputs/unique_ecg_scp_dataset.jsonl")
+DEFAULT_LABEL_SOURCE = "scp"
+DEFAULT_TARGET = "AFIB"
 
 
-def make_output_model_path(target_attribute: str, classifier_name: str) -> Path:
+def make_output_model_path(target: str, classifier_name: str, label_source: str) -> Path:
     slug = (
-        target_attribute.lower()
+        target.lower()
         .replace(" ", "_")
         .replace("/", "_")
         .replace("(", "")
         .replace(")", "")
         .replace(",", "")
     )
-    return Path(f"outputs/{slug}_{classifier_name}_interpreter.joblib")
+    return Path(f"outputs/{slug}_{label_source}_{classifier_name}_interpreter.joblib")
 
 
 # -----------------------------
@@ -104,6 +106,58 @@ def load_unique_ecg_dataset(path: Path, target_attribute: str) -> Tuple[np.ndarr
     ecg_ids = sorted(ecg_to_embedding.keys())
     X = np.array([ecg_to_embedding[eid] for eid in ecg_ids], dtype=np.float32)
     y = np.array([ecg_to_label[eid] for eid in ecg_ids], dtype=np.int64)
+
+    return X, y
+
+
+def load_scp_ecg_dataset(
+    path: Path,
+    target_scp_code: str,
+    min_scp_likelihood: float | None = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build one sample per unique ECG using PTB-XL SCP codes as labels.
+
+    By default, label = 1 when the target SCP code is present at all. This is
+    important for rhythm codes such as AFIB, which PTB-XL often stores with a
+    likelihood value of 0.0 despite the code being present.
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"SCP dataset file not found: {path}. "
+            "Run build_scp_ecg_dataset.py first."
+        )
+
+    target_scp_code = target_scp_code.strip().upper()
+
+    embeddings = []
+    labels = []
+
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+
+            embedding = row.get("embedding")
+            if embedding is None:
+                continue
+
+            scp_codes = row.get("scp_codes", {})
+            if not isinstance(scp_codes, dict):
+                continue
+
+            has_code = target_scp_code in scp_codes
+
+            if min_scp_likelihood is None:
+                label = int(has_code)
+            else:
+                code_value = float(scp_codes.get(target_scp_code, 0.0))
+                label = int(has_code and code_value >= min_scp_likelihood)
+
+            embeddings.append(embedding)
+            labels.append(label)
+
+    X = np.array(embeddings, dtype=np.float32)
+    y = np.array(labels, dtype=np.int64)
 
     return X, y
 
@@ -183,14 +237,60 @@ def main() -> None:
         choices=["logreg", "svm", "xgb"],
         help="Classifier to use on top of the CSFM embeddings.",
     )
+    parser.add_argument(
+        "--label-source",
+        type=str,
+        default=DEFAULT_LABEL_SOURCE,
+        choices=["scp", "attribute"],
+        help="Use PTB-XL SCP codes or the older ECG-QA attribute labels.",
+    )
+    parser.add_argument(
+        "--target",
+        type=str,
+        default=DEFAULT_TARGET,
+        help="Target SCP code, e.g. AFIB or NDT, or ECG-QA attribute text.",
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        default=None,
+        help="Optional path to the prepared JSONL dataset.",
+    )
+    parser.add_argument(
+        "--min-scp-likelihood",
+        type=float,
+        default=None,
+        help=(
+            "Optional minimum SCP likelihood for positive labels. "
+            "Leave unset to label by code presence."
+        ),
+    )
     args = parser.parse_args()
 
-    output_model_path = make_output_model_path(TARGET_ATTRIBUTE, args.classifier)
+    data_path = args.data_path
+    if data_path is None:
+        data_path = SCP_DATA_PATH if args.label_source == "scp" else ATTRIBUTE_DATA_PATH
 
-    print(f"Target attribute: {TARGET_ATTRIBUTE}")
+    output_model_path = make_output_model_path(
+        args.target,
+        args.classifier,
+        args.label_source,
+    )
+
+    print(f"Label source: {args.label_source}")
+    print(f"Target: {args.target}")
+    print(f"Data path: {data_path}")
     print(f"Using classifier: {args.classifier}")
 
-    X, y = load_unique_ecg_dataset(DATA_PATH, TARGET_ATTRIBUTE)
+    if args.label_source == "scp":
+        X, y = load_scp_ecg_dataset(
+            data_path,
+            target_scp_code=args.target,
+            min_scp_likelihood=args.min_scp_likelihood,
+        )
+    else:
+        X, y = load_unique_ecg_dataset(data_path, args.target)
+
     print("Unique ECGs:", X.shape[0])
     print("Embedding dim:", X.shape[1])
 
@@ -200,7 +300,7 @@ def main() -> None:
     print(f"Negatives: {n_neg}")
 
     if n_pos == 0:
-        raise RuntimeError(f"No positive examples found for attribute: {TARGET_ATTRIBUTE}")
+        raise RuntimeError(f"No positive examples found for target: {args.target}")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X,
@@ -229,7 +329,9 @@ def main() -> None:
     print_metrics("TEST RESULTS", y_test, y_pred, y_prob=y_prob)
 
     bundle = {
-        "target_attribute": TARGET_ATTRIBUTE,
+        "label_source": args.label_source,
+        "target": args.target,
+        "min_scp_likelihood": args.min_scp_likelihood,
         "classifier_name": args.classifier,
         "scaler": scaler,
         "model": clf,
