@@ -50,7 +50,9 @@ Model training (baseline → adapter → LLM)
 - [x] Map ECG-QA to PTB-XL using ecg_id
 - [x] Preprocess ECG signals using CSFM preprocessing
 - [x] Extract embeddings using CSFM
-- [x] Build initial dataset (100 samples)
+- [x] Build CSFM embedding datasets for ECG-QA single-verify questions
+- [x] Probe SCP-code recoverability from frozen CSFM embeddings
+- [x] Build a clean binary ECG-QA subset for baseline experiments
 
 ---
 
@@ -63,12 +65,18 @@ ProjectCode/
 │   ├── config.py              # Centralised paths and settings
 │   ├── ecgqa_loader.py        # Loads ECG-QA dataset
 │   ├── ptbxl_loader.py        # Loads PTB-XL ECG signals
-│   ├── dataset_builder.py     # Builds embedding dataset
+│   ├── ecg_feature_extractor.py
+│   ├── ecg_prompt_builder.py
 │
 ├── outputs/                   # Generated datasets
 ├── logs/                      # Logs (for cluster use later)
-├── build_preview_dataset.py   # Script to generate dataset
-├── test_one_sample.py         # Single-sample test script
+├── build_preview_dataset.py   # Extracts CSFM embeddings for ECG-QA rows
+├── build_scp_ecg_dataset.py   # Builds ECG-level SCP-labelled embedding data
+├── build_ecgqa_scp_subset.py  # Builds the current binary ECG-QA subset
+├── evaluate_scp_code_panel.py # Ranks SCP codes by CSFM probe performance
+├── train_embedding_interpreter.py
+├── train_baseline.py
+├── test_ecg_llm.py
 ├── README.md
 ```
 
@@ -123,9 +131,88 @@ This script will:
 
 ---
 
+## Current Experimental Subset
+
+The current baseline experiments use a controlled binary subset of ECG-QA.
+
+Filtering criteria:
+
+- `question_type == "single-verify"`
+- `attribute_type == "scp_code"`
+- answer is binary: `yes` or `no`
+- the question targets one of the selected SCP codes
+- every row has a CSFM ECG embedding
+
+Selected SCP codes:
+
+| Code | Description |
+| --- | --- |
+| AFIB | atrial fibrillation |
+| LAFB | left anterior fascicular block |
+| LVH | left ventricular hypertrophy |
+| NORM | normal ECG |
+| CLBBB | complete left bundle branch block |
+| CRBBB | complete right bundle branch block |
+| ASMI | anteroseptal myocardial infarction |
+
+These codes were selected after probing which PTB-XL SCP labels are recoverable
+from frozen CSFM embeddings with a simple logistic-regression classifier. The
+panel results are saved in:
+
+```bash
+outputs/scp_code_panel_results.json
+outputs/scp_code_panel_results.csv
+```
+
+Current subset outputs:
+
+```bash
+outputs/ecgqa_scp_binary_subset.jsonl
+outputs/ecgqa_scp_binary_train.jsonl
+outputs/ecgqa_scp_binary_val.jsonl
+outputs/ecgqa_scp_binary_subset_stats.json
+```
+
+Current subset statistics:
+
+| Statistic | Count |
+| --- | ---: |
+| Total questions | 938 |
+| Unique ECGs | 885 |
+| Train questions | 745 |
+| Validation questions | 193 |
+| Train unique ECGs | 708 |
+| Validation unique ECGs | 177 |
+| Train/validation ECG overlap | 0 |
+| Yes answers | 310 |
+| No answers | 628 |
+
+Questions per selected code:
+
+| Code | Questions |
+| --- | ---: |
+| LVH | 378 |
+| CLBBB | 102 |
+| NORM | 97 |
+| CRBBB | 94 |
+| AFIB | 91 |
+| LAFB | 90 |
+| ASMI | 86 |
+
+The train/validation split is assigned by `ecg_id`, not by row. This prevents
+the same ECG embedding from appearing in both train and validation sets.
+
+To regenerate the subset after creating the CSFM embedding file:
+
+```bash
+python build_ecgqa_scp_subset.py
+```
+
+---
+
 ## Output Format
 
-Each sample is saved as a JSON object:
+Each CSFM embedding sample is saved as a JSON object:
 
 ```json
 {
@@ -138,6 +225,33 @@ Each sample is saved as a JSON object:
   "embedding": [0.12, -0.43, ..., 768 values],
   "embedding_dim": 768,
   "signal_shape": [12, 2500]
+}
+```
+
+The current binary ECG-QA subset adds SCP-code metadata and a fixed split:
+
+```json
+{
+  "ecg_id": 837,
+  "question": "Does this ECG show symptoms of left ventricular hypertrophy?",
+  "answer": "no",
+  "label": 0,
+  "question_type": "single-verify",
+  "attribute_type": "scp_code",
+  "attribute": "left ventricular hypertrophy",
+  "target_scp_code": "LVH",
+  "target_scp_statement": {
+    "code": "LVH",
+    "description": "left ventricular hypertrophy"
+  },
+  "ptbxl_scp_codes": {
+    "NORM": 100.0,
+    "SR": 0.0
+  },
+  "embedding": [0.12, -0.43, "... 768 values"],
+  "embedding_dim": 768,
+  "signal_shape": [12, 2500],
+  "split": "train"
 }
 ```
 
@@ -160,15 +274,14 @@ This enables:
 
 ## Next Steps
 
-- Train baseline models:
-  - ECG-only (embedding → answer)
-  - Question-only
-  - Combined model
+- Implement embedding-based baselines on the binary ECG-QA subset:
+  - ECG-only: CSFM embedding → yes/no
+  - Text-only: question embedding → yes/no
+  - Combined: CSFM embedding + question embedding → yes/no
 
-- Evaluate performance:
-  - Accuracy
-  - Macro-F1
-  - AUROC
+- Refine and evaluate a simple LLM baseline:
+  - raw ECG → hand-crafted ECG features/text description
+  - ECG description + question → frozen LLM → yes/no
 
 - Develop adapter module:
   - Convert embeddings → LLM tokens

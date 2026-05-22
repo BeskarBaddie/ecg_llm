@@ -30,11 +30,11 @@ from utils.preprocess import preprocess_ecg  # noqa: E402
 # ---------------------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------------------
-TARGET_N = 10000
+TARGET_N = 20000
 PREFER = "hr"  # use records500
 FS_ORIGINAL = 500  # PTB-XL records500 is 500 Hz
 
-OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_10000_sv.jsonl"
+OUTPUT_FILE = OUTPUT_DIR / "ecgqa_csfm_preview_20000_sv.jsonl"
 
 
 def load_csfm():
