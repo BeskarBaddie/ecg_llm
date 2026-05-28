@@ -16,7 +16,7 @@ DATA_ROOT = Path.home() / "Diss" / "Data"
 # ECG-QA
 ECG_QA_DIR = DATA_ROOT / "ecg-qa"
 ECG_QA_TRAIN = ECG_QA_DIR / "ecgqa" / "ptbxl" / "template" / "train"
-ECG_QA_VAL = ECG_QA_DIR / "ecgqa" / "ptbxl" / "template" / "val"
+ECG_QA_VAL = ECG_QA_DIR / "ecgqa" / "ptbxl" / "template" / "valid"
 ECG_QA_TEST = ECG_QA_DIR / "ecgqa" / "ptbxl" / "template" / "test"
 
 # PTB-XL
