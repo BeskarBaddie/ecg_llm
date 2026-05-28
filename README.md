@@ -177,34 +177,35 @@ Current subset statistics:
 
 | Statistic | Count |
 | --- | ---: |
-| Total questions | 938 |
-| Unique ECGs | 885 |
-| Train questions | 745 |
-| Validation questions | 193 |
-| Train unique ECGs | 708 |
-| Validation unique ECGs | 177 |
+| Total questions | 1516 |
+| Unique ECGs | 1320 |
+| Train questions | 938 |
+| Validation questions | 578 |
+| Train unique ECGs | 885 |
+| Validation unique ECGs | 435 |
 | Train/validation ECG overlap | 0 |
-| Yes answers | 310 |
-| No answers | 628 |
+| Yes answers | 493 |
+| No answers | 1023 |
 
 Questions per selected code:
 
 | Code | Questions |
 | --- | ---: |
-| LVH | 378 |
-| CLBBB | 102 |
-| NORM | 97 |
-| CRBBB | 94 |
-| AFIB | 91 |
-| LAFB | 90 |
-| ASMI | 86 |
+| LVH | 612 |
+| NORM | 156 |
+| CRBBB | 153 |
+| CLBBB | 152 |
+| LAFB | 150 |
+| AFIB | 148 |
+| ASMI | 145 |
 
-The train/validation split is assigned by `ecg_id`, not by row. This prevents
-the same ECG embedding from appearing in both train and validation sets.
+The train/validation split now follows the official ECG-QA template split.
+The current local subset still has no ECG overlap between train and validation.
 
-To regenerate the subset after creating the CSFM embedding file:
+To regenerate the official validation embeddings and subset:
 
 ```bash
+python build_ecgqa_valid_scp_embeddings.py
 python build_ecgqa_scp_subset.py
 ```
 
