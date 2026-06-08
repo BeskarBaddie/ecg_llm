@@ -22,6 +22,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.pipeline import make_pipeline
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 
@@ -67,6 +68,38 @@ def filter_rows_by_scp_code(
     return [row for row in rows if str(row.get("target_scp_code", "")).upper() == target_scp_code]
 
 
+# Function: Limit training rows per exact question while preserving the validation set.
+# Inputs: dataset rows, optional max rows per question, and random seed.
+# Outputs: sampled rows with at most max rows for each question.
+def limit_rows_per_question(
+    rows: List[Dict[str, Any]],
+    max_rows_per_question: int | None,
+    random_state: int,
+) -> List[Dict[str, Any]]:
+    if max_rows_per_question is None:
+        return rows
+    if max_rows_per_question <= 0:
+        raise ValueError("--max-train-per-question must be positive when supplied.")
+
+    rng = np.random.default_rng(random_state)
+    by_question: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_question[str(row.get("question", ""))].append(row)
+
+    sampled_rows: List[Dict[str, Any]] = []
+    for question in sorted(by_question):
+        question_rows = by_question[question]
+        if len(question_rows) <= max_rows_per_question:
+            sampled_rows.extend(question_rows)
+            continue
+        selected_indices = sorted(
+            rng.choice(len(question_rows), size=max_rows_per_question, replace=False).tolist()
+        )
+        sampled_rows.extend(question_rows[idx] for idx in selected_indices)
+
+    return sampled_rows
+
+
 # Function: Convert ECG-QA rows into model arrays.
 # Inputs: rows containing "embedding", "question", and "label" fields.
 # Outputs: ECG embedding matrix, question list, and binary label vector.
@@ -101,7 +134,27 @@ def encode_questions(
     val_questions: List[str],
     encoder: str,
     model_name: str,
+    allow_download: bool,
 ) -> tuple[np.ndarray, np.ndarray, Any]:
+    if encoder == "onehot":
+        question_to_index = {
+            question: idx for idx, question in enumerate(sorted(set(train_questions)))
+        }
+        unknown_index = len(question_to_index)
+
+        def transform(questions: List[str]) -> np.ndarray:
+            X = np.zeros((len(questions), len(question_to_index) + 1), dtype=np.float32)
+            for row_idx, question in enumerate(questions):
+                col_idx = question_to_index.get(question, unknown_index)
+                X[row_idx, col_idx] = 1.0
+            return X
+
+        artifact = {
+            "question_to_index": question_to_index,
+            "unknown_index": unknown_index,
+        }
+        return transform(train_questions), transform(val_questions), artifact
+
     if encoder == "tfidf":
         vectorizer = TfidfVectorizer(
             lowercase=True,
@@ -113,30 +166,136 @@ def encode_questions(
         return X_train_text.astype(np.float32), X_val_text.astype(np.float32), vectorizer
 
     if encoder != "sentence-transformer":
-        raise ValueError("Unknown question encoder. Use: tfidf or sentence-transformer.")
+        if encoder != "medcpt":
+            raise ValueError("Unknown question encoder. Use: onehot, tfidf, medcpt, or sentence-transformer.")
 
     try:
-        from sentence_transformers import SentenceTransformer
+        if encoder == "sentence-transformer":
+            from sentence_transformers import SentenceTransformer
+        else:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
     except ImportError as exc:
         raise ImportError(
-            "sentence_transformers is not installed. Install it or run with "
-            "--question-encoder tfidf for a dependency-light local baseline."
+            "Required text embedding dependencies are not installed. Install sentence_transformers "
+            "for --question-encoder sentence-transformer, or transformers/torch for "
+            "--question-encoder medcpt. Use onehot or tfidf for dependency-light baselines."
         ) from exc
 
-    model = SentenceTransformer(model_name)
+    if encoder == "sentence-transformer":
+        model = SentenceTransformer(model_name, local_files_only=not allow_download)
 
-    X_train_text = model.encode(
-        train_questions,
-        convert_to_numpy=True,
-        show_progress_bar=True,
-    )
-    X_val_text = model.encode(
-        val_questions,
-        convert_to_numpy=True,
-        show_progress_bar=True,
-    )
+        X_train_text = model.encode(
+            train_questions,
+            convert_to_numpy=True,
+            show_progress_bar=True,
+        )
+        X_val_text = model.encode(
+            val_questions,
+            convert_to_numpy=True,
+            show_progress_bar=True,
+        )
 
-    return X_train_text.astype(np.float32), X_val_text.astype(np.float32), model_name
+        return X_train_text.astype(np.float32), X_val_text.astype(np.float32), model_name
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=not allow_download)
+    model = AutoModel.from_pretrained(model_name, local_files_only=not allow_download)
+    model.eval()
+
+    # Function: Encode questions using MedCPT-style CLS embeddings.
+    # Inputs: Question strings, tokenizer/model, and batch size.
+    # Outputs: Dense 768-dimensional question embedding matrix.
+    def encode_medcpt_questions(questions: List[str], batch_size: int = 32) -> np.ndarray:
+        embeddings = []
+        with torch.no_grad():
+            for start in range(0, len(questions), batch_size):
+                batch_questions = questions[start : start + batch_size]
+                encoded = tokenizer(
+                    batch_questions,
+                    truncation=True,
+                    padding=True,
+                    return_tensors="pt",
+                    max_length=64,
+                )
+                batch_embeddings = model(**encoded).last_hidden_state[:, 0, :]
+                embeddings.append(batch_embeddings.cpu().numpy())
+        return np.concatenate(embeddings, axis=0).astype(np.float32)
+
+    return encode_medcpt_questions(train_questions), encode_medcpt_questions(val_questions), model_name
+
+
+# Function: Optionally reduce ECG and question embeddings to a shared PCA dimension.
+# Inputs: train/validation ECG matrices, train/validation text matrices, optional PCA dimension, and seed.
+# Outputs: transformed matrices plus fitted PCA artifacts, or original matrices when PCA is disabled.
+def maybe_apply_pca(
+    X_train_ecg: np.ndarray,
+    X_val_ecg: np.ndarray,
+    X_train_text: np.ndarray,
+    X_val_text: np.ndarray,
+    pca_dim: int | None,
+    random_state: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    if pca_dim is None:
+        return X_train_ecg, X_val_ecg, X_train_text, X_val_text, {}
+
+    max_components = min(
+        pca_dim,
+        X_train_ecg.shape[0],
+        X_train_ecg.shape[1],
+        X_train_text.shape[0],
+        X_train_text.shape[1],
+    )
+    if max_components < 1:
+        raise ValueError("PCA dimension must be at least 1 after checking data shapes.")
+
+    ecg_pca = PCA(n_components=max_components, random_state=random_state)
+    text_pca = PCA(n_components=max_components, random_state=random_state)
+
+    X_train_ecg_pca = ecg_pca.fit_transform(X_train_ecg).astype(np.float32)
+    X_val_ecg_pca = ecg_pca.transform(X_val_ecg).astype(np.float32)
+    X_train_text_pca = text_pca.fit_transform(X_train_text).astype(np.float32)
+    X_val_text_pca = text_pca.transform(X_val_text).astype(np.float32)
+
+    artifacts = {
+        "requested_pca_dim": int(pca_dim),
+        "actual_pca_dim": int(max_components),
+        "ecg_pca": ecg_pca,
+        "text_pca": text_pca,
+        "ecg_explained_variance_ratio_sum": float(np.sum(ecg_pca.explained_variance_ratio_)),
+        "text_explained_variance_ratio_sum": float(np.sum(text_pca.explained_variance_ratio_)),
+    }
+
+    return X_train_ecg_pca, X_val_ecg_pca, X_train_text_pca, X_val_text_pca, artifacts
+
+
+# Function: Build multimodal fusion matrices from ECG and text embeddings.
+# Inputs: ECG/text train and validation matrices plus fusion strategy.
+# Outputs: fused train and validation feature matrices.
+def fuse_embeddings(
+    X_train_ecg: np.ndarray,
+    X_val_ecg: np.ndarray,
+    X_train_text: np.ndarray,
+    X_val_text: np.ndarray,
+    fusion: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    if fusion == "concat":
+        return (
+            np.concatenate([X_train_ecg, X_train_text], axis=1),
+            np.concatenate([X_val_ecg, X_val_text], axis=1),
+        )
+
+    if fusion == "mean":
+        if X_train_ecg.shape[1] != X_train_text.shape[1]:
+            raise ValueError(
+                "Mean fusion requires ECG and text embeddings with the same dimension. "
+                "Use --pca-dim 256 to project both modalities first."
+            )
+        return (
+            ((X_train_ecg + X_train_text) / 2.0).astype(np.float32),
+            ((X_val_ecg + X_val_text) / 2.0).astype(np.float32),
+        )
+
+    raise ValueError("Unknown fusion strategy. Use: concat or mean.")
 
 
 # Function: Construct the simple classifier used by all embedding baselines.
@@ -376,13 +535,32 @@ def main() -> None:
         "--question-encoder",
         type=str,
         default="tfidf",
-        choices=["tfidf", "sentence-transformer"],
+        choices=["onehot", "tfidf", "sentence-transformer", "medcpt"],
         help=(
-            "Question representation to use. Use sentence-transformer for "
-            "dense question embeddings; tfidf is a lightweight local fallback."
+            "Question representation to use. onehot tests exact question identity; "
+            "medcpt uses ncbi/MedCPT-style biomedical CLS embeddings; "
+            "sentence-transformer uses dense question embeddings; tfidf is a lightweight fallback."
         ),
     )
     parser.add_argument("--question-model", type=str, default="all-MiniLM-L6-v2")
+    parser.add_argument(
+        "--allow-question-model-download",
+        action="store_true",
+        help="Allow sentence-transformers to download model files from Hugging Face.",
+    )
+    parser.add_argument(
+        "--pca-dim",
+        type=int,
+        default=None,
+        help="Optional PCA dimension applied separately to ECG and text embeddings, e.g. 256.",
+    )
+    parser.add_argument(
+        "--fusion",
+        type=str,
+        default="concat",
+        choices=["concat", "mean", "both"],
+        help="How to combine ECG and text embeddings for the multimodal baseline.",
+    )
     parser.add_argument("--results-path", type=Path, default=RESULTS_PATH)
     parser.add_argument("--predictions-path", type=Path, default=PREDICTIONS_PATH)
     parser.add_argument("--model-bundle-path", type=Path, default=MODEL_BUNDLE_PATH)
@@ -392,6 +570,12 @@ def main() -> None:
         default=None,
         help="Optional single SCP code subset, e.g. AFIB.",
     )
+    parser.add_argument(
+        "--max-train-per-question",
+        type=int,
+        default=None,
+        help="Optional cap on train rows per exact question. Validation rows are never capped.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -399,6 +583,11 @@ def main() -> None:
     val_rows = load_jsonl(args.val_path)
     train_rows = filter_rows_by_scp_code(train_rows, args.target_scp_code)
     val_rows = filter_rows_by_scp_code(val_rows, args.target_scp_code)
+    train_rows = limit_rows_per_question(
+        train_rows,
+        max_rows_per_question=args.max_train_per_question,
+        random_state=args.seed,
+    )
 
     if not train_rows or not val_rows:
         raise RuntimeError("Train and validation rows must both be non-empty after filtering.")
@@ -414,17 +603,37 @@ def main() -> None:
     print(f"Target SCP code: {args.target_scp_code or 'ALL'}")
     print(f"Question encoder: {args.question_encoder}")
     print(f"Question model: {args.question_model}")
+    print(f"PCA dim: {args.pca_dim if args.pca_dim is not None else 'none'}")
+    print(f"Fusion: {args.fusion}")
+    print(f"Max train per question: {args.max_train_per_question or 'none'}")
 
     X_train_text, X_val_text, question_encoder_artifact = encode_questions(
         train_questions,
         val_questions,
         encoder=args.question_encoder,
         model_name=args.question_model,
+        allow_download=args.allow_question_model_download,
     )
     print("Question embedding dim:", X_train_text.shape[1])
 
-    X_train_combined = np.concatenate([X_train_ecg, X_train_text], axis=1)
-    X_val_combined = np.concatenate([X_val_ecg, X_val_text], axis=1)
+    X_train_ecg_model, X_val_ecg_model, X_train_text_model, X_val_text_model, pca_artifacts = maybe_apply_pca(
+        X_train_ecg,
+        X_val_ecg,
+        X_train_text,
+        X_val_text,
+        pca_dim=args.pca_dim,
+        random_state=args.seed,
+    )
+    print("Model ECG embedding dim:", X_train_ecg_model.shape[1])
+    print("Model question embedding dim:", X_train_text_model.shape[1])
+    if pca_artifacts:
+        print(
+            "PCA explained variance:",
+            {
+                "ecg": round(pca_artifacts["ecg_explained_variance_ratio_sum"], 4),
+                "text": round(pca_artifacts["text_explained_variance_ratio_sum"], 4),
+            },
+        )
 
     models: Dict[str, Any] = {}
     results: Dict[str, Any] = {
@@ -433,6 +642,16 @@ def main() -> None:
         "target_scp_code": args.target_scp_code,
         "question_encoder": args.question_encoder,
         "question_model": args.question_model,
+        "pca_dim": args.pca_dim,
+        "fusion": args.fusion,
+        "max_train_per_question": args.max_train_per_question,
+        "model_ecg_embedding_dim": int(X_train_ecg_model.shape[1]),
+        "model_text_embedding_dim": int(X_train_text_model.shape[1]),
+        "pca": {
+            key: value
+            for key, value in pca_artifacts.items()
+            if key not in {"ecg_pca", "text_pca"}
+        },
         "train_rows": len(train_rows),
         "val_rows": len(val_rows),
         "train_label_counts": dict(Counter(int(x) for x in y_train)),
@@ -453,14 +672,36 @@ def main() -> None:
     all_predictions.extend(predictions)
 
     for method, X_train, X_val in [
-        ("ecg_only", X_train_ecg, X_val_ecg),
-        ("text_only", X_train_text, X_val_text),
-        ("combined", X_train_combined, X_val_combined),
+        ("ecg_only", X_train_ecg_model, X_val_ecg_model),
+        ("text_only", X_train_text_model, X_val_text_model),
     ]:
         model, metrics, predictions = fit_and_evaluate(
             method,
             X_train,
             X_val,
+            y_train,
+            y_val,
+            val_rows,
+            random_state=args.seed,
+        )
+        models[method] = model
+        results["methods"][method] = metrics
+        all_predictions.extend(predictions)
+
+    fusion_methods = ["concat", "mean"] if args.fusion == "both" else [args.fusion]
+    for fusion in fusion_methods:
+        X_train_combined, X_val_combined = fuse_embeddings(
+            X_train_ecg_model,
+            X_val_ecg_model,
+            X_train_text_model,
+            X_val_text_model,
+            fusion=fusion,
+        )
+        method = "combined" if fusion == "concat" else "combined_mean"
+        model, metrics, predictions = fit_and_evaluate(
+            method,
+            X_train_combined,
+            X_val_combined,
             y_train,
             y_val,
             val_rows,
@@ -487,6 +728,7 @@ def main() -> None:
             "question_encoder": args.question_encoder,
             "question_encoder_artifact": question_encoder_artifact,
             "question_model": args.question_model,
+            "pca_artifacts": pca_artifacts,
             "results": results,
         },
         model_bundle_path,
