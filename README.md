@@ -68,15 +68,20 @@ ProjectCode/
 │   ├── ecg_feature_extractor.py
 │   ├── ecg_prompt_builder.py
 │
-├── outputs/                   # Generated datasets
-├── logs/                      # Logs (for cluster use later)
-├── build_preview_dataset.py   # Extracts CSFM embeddings for ECG-QA rows
-├── build_scp_ecg_dataset.py   # Builds ECG-level SCP-labelled embedding data
-├── build_ecgqa_scp_subset.py  # Builds the current binary ECG-QA subset
-├── evaluate_scp_code_panel.py # Ranks SCP codes by CSFM probe performance
-├── train_embedding_interpreter.py
-├── train_baseline.py
-├── test_ecg_llm.py
+├── outputs/                               # Generated datasets/results
+├── archive/not_in_use/                    # Legacy/debug scripts kept for reference
+├── build_ecgqa_scp_official_embeddings.py # Builds current ECG-QA SCP dataset with pretrained CSFM
+├── build_ecgqa_scp_subset.py              # Rebuilds binary ECG-QA SCP subset from embedding files
+├── build_ecgqa_valid_scp_embeddings.py    # Builds official validation embeddings
+├── build_scp_ecg_dataset.py               # Builds ECG-level SCP-labelled embedding data for probes
+├── evaluate_scp_code_panel.py             # Ranks SCP codes by CSFM probe performance
+├── train_embedding_interpreter.py         # Legacy-compatible SCP embedding probe
+├── analyze_ecgqa_label_alignment.py       # Audits ECG-QA labels against PTB-XL SCP metadata
+├── train_ecgqa_embedding_baselines.py     # ECG-only/text-only/combined embedding baselines
+├── evaluate_classifier_llm_baseline.py    # Classifier-to-LLM baseline
+├── train_domain_feature_classifiers.py    # Domain-feature classifier validation
+├── evaluate_domain_feature_llm_baseline.py# Domain-feature LLM baselines
+├── evaluate_feature_llm_baseline.py       # Compact feature-to-LLM baseline
 ├── README.md
 ```
 
@@ -116,17 +121,18 @@ pip install numpy pandas wfdb torch neurokit2
 
 ## Running the Pipeline
 
-To generate a small dataset (e.g. 100 samples):
+To regenerate the current official ECG-QA SCP dataset with pretrained CSFM embeddings:
 
 ```bash
-python build_preview_dataset.py
+MPLCONFIGDIR=/private/tmp/matplotlib-cache python build_ecgqa_scp_official_embeddings.py
 ```
 
 This script will:
-- load ECG-QA data
+- load ECG-QA train/validation rows
 - map each `ecg_id` to PTB-XL
 - preprocess ECG signals
-- extract embeddings using CSFM
+- extract embeddings using the pretrained CSFM Tiny checkpoint
+- filter to binary `single-verify` SCP-code questions
 - save results to the `outputs/` folder
 
 ---
@@ -177,27 +183,24 @@ Current subset statistics:
 
 | Statistic | Count |
 | --- | ---: |
-| Total questions | 1516 |
-| Unique ECGs | 1320 |
-| Train questions | 938 |
+| Total questions | 3496 |
+| Unique ECGs | 2868 |
+| Train questions | 2918 |
 | Validation questions | 578 |
-| Train unique ECGs | 885 |
-| Validation unique ECGs | 435 |
-| Train/validation ECG overlap | 0 |
-| Yes answers | 493 |
-| No answers | 1023 |
+| Yes answers | 1154 |
+| No answers | 2342 |
 
 Questions per selected code:
 
 | Code | Questions |
 | --- | ---: |
-| LVH | 612 |
-| NORM | 156 |
-| CRBBB | 153 |
-| CLBBB | 152 |
-| LAFB | 150 |
-| AFIB | 148 |
-| ASMI | 145 |
+| LVH | 1412 |
+| LAFB | 354 |
+| NORM | 352 |
+| CRBBB | 351 |
+| AFIB | 346 |
+| ASMI | 343 |
+| CLBBB | 338 |
 
 The train/validation split now follows the official ECG-QA template split.
 The current local subset still has no ECG overlap between train and validation.
