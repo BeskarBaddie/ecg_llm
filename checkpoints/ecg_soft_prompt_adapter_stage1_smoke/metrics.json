@@ -1,0 +1,162 @@
+{
+  "stage": "stage1_linear_soft_prompt_smoke_test",
+  "train_path": "outputs/ecgqa_scp_binary_train.jsonl",
+  "val_path": "outputs/ecgqa_scp_binary_val.jsonl",
+  "llm_model": "sshleifer/tiny-gpt2",
+  "csfm_dim": 768,
+  "llm_hidden_size": 2,
+  "num_soft_tokens": 8,
+  "adapter_type": "linear",
+  "adapter_parameters": 12304,
+  "trainable": "adapter_only",
+  "epochs": 1,
+  "batch_size": 2,
+  "learning_rate": 0.001,
+  "weight_decay": 0.0,
+  "grad_clip": 1.0,
+  "max_length": 96,
+  "max_new_tokens": 4,
+  "eval_mode": "forced_choice",
+  "debug_train_limit": 8,
+  "debug_val_limit": 8,
+  "train_losses": [
+    10.809758186340332
+  ],
+  "metrics": {
+    "n": 8,
+    "accuracy": 0.5,
+    "balanced_accuracy": 0.5,
+    "macro_f1": 0.3333333333333333,
+    "invalid_predictions": 0,
+    "prediction_counts": {
+      "1": 8
+    },
+    "confusion_matrix_labels": [
+      "no",
+      "yes",
+      "unknown"
+    ],
+    "confusion_matrix": [
+      [
+        0,
+        4,
+        0
+      ],
+      [
+        0,
+        4,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "labels": {
+      "no": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 4
+      },
+      "yes": {
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6666666666666666,
+        "support": 4
+      }
+    },
+    "classification_report": {
+      "no": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 4.0
+      },
+      "yes": {
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1-score": 0.6666666666666666,
+        "support": 4.0
+      },
+      "accuracy": 0.5,
+      "macro avg": {
+        "precision": 0.25,
+        "recall": 0.5,
+        "f1-score": 0.3333333333333333,
+        "support": 8.0
+      },
+      "weighted avg": {
+        "precision": 0.25,
+        "recall": 0.5,
+        "f1-score": 0.3333333333333333,
+        "support": 8.0
+      }
+    },
+    "per_code": {
+      "AFIB": {
+        "n": 1,
+        "accuracy": 1.0,
+        "balanced_accuracy": null,
+        "macro_f1": 1.0,
+        "label_counts": {
+          "1": 1
+        },
+        "prediction_counts": {
+          "1": 1
+        }
+      },
+      "CLBBB": {
+        "n": 2,
+        "accuracy": 0.5,
+        "balanced_accuracy": 0.5,
+        "macro_f1": 0.3333333333333333,
+        "label_counts": {
+          "0": 1,
+          "1": 1
+        },
+        "prediction_counts": {
+          "1": 2
+        }
+      },
+      "CRBBB": {
+        "n": 1,
+        "accuracy": 1.0,
+        "balanced_accuracy": null,
+        "macro_f1": 1.0,
+        "label_counts": {
+          "1": 1
+        },
+        "prediction_counts": {
+          "1": 1
+        }
+      },
+      "LVH": {
+        "n": 3,
+        "accuracy": 0.3333333333333333,
+        "balanced_accuracy": 0.5,
+        "macro_f1": 0.25,
+        "label_counts": {
+          "0": 2,
+          "1": 1
+        },
+        "prediction_counts": {
+          "1": 3
+        }
+      },
+      "NORM": {
+        "n": 1,
+        "accuracy": 0.0,
+        "balanced_accuracy": null,
+        "macro_f1": 0.0,
+        "label_counts": {
+          "0": 1
+        },
+        "prediction_counts": {
+          "1": 1
+        }
+      }
+    }
+  }
+}

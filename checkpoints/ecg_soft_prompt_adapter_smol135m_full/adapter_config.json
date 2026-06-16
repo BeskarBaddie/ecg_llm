@@ -1,0 +1,10 @@
+{
+  "llm_model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+  "csfm_dim": 768,
+  "llm_hidden_size": 576,
+  "num_soft_tokens": 8,
+  "adapter_type": "linear",
+  "adapter_parameters": 3543552,
+  "prompt_template": "You are a cardiology assistant.\nAnswer the ECG question using the ECG representation.\nQuestion: {question}\nAnswer:",
+  "trainable": "adapter_only"
+}

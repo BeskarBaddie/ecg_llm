@@ -1,0 +1,203 @@
+{
+  "stage": "stage1_linear_soft_prompt_smoke_test",
+  "train_path": "outputs/ecgqa_scp_binary_train.jsonl",
+  "val_path": "outputs/ecgqa_scp_binary_val.jsonl",
+  "llm_model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+  "csfm_dim": 768,
+  "llm_hidden_size": 576,
+  "num_soft_tokens": 8,
+  "adapter_type": "linear",
+  "use_safetensors": true,
+  "torch_dtype": "float32",
+  "adapter_parameters": 3543552,
+  "trainable": "adapter_only",
+  "epochs": 3,
+  "batch_size": 4,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.0,
+  "grad_clip": 1.0,
+  "max_length": 96,
+  "max_new_tokens": 4,
+  "eval_mode": "forced_choice",
+  "debug_train_limit": 2918,
+  "debug_val_limit": 578,
+  "train_losses": [
+    0.6622051561736081,
+    0.5184013140987451,
+    0.478314240741199
+  ],
+  "metrics": {
+    "n": 578,
+    "accuracy": 0.7525951557093425,
+    "balanced_accuracy": 0.6518157294044408,
+    "macro_f1": 0.6638373157092018,
+    "invalid_predictions": 0,
+    "prediction_counts": {
+      "0": 480,
+      "1": 98
+    },
+    "confusion_matrix_labels": [
+      "no",
+      "yes",
+      "unknown"
+    ],
+    "confusion_matrix": [
+      [
+        366,
+        29,
+        0
+      ],
+      [
+        114,
+        69,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "labels": {
+      "no": {
+        "precision": 0.7625,
+        "recall": 0.9265822784810127,
+        "f1": 0.8365714285714285,
+        "support": 395
+      },
+      "yes": {
+        "precision": 0.7040816326530612,
+        "recall": 0.3770491803278688,
+        "f1": 0.49110320284697506,
+        "support": 183
+      }
+    },
+    "classification_report": {
+      "no": {
+        "precision": 0.7625,
+        "recall": 0.9265822784810127,
+        "f1-score": 0.8365714285714285,
+        "support": 395.0
+      },
+      "yes": {
+        "precision": 0.7040816326530612,
+        "recall": 0.3770491803278688,
+        "f1-score": 0.49110320284697506,
+        "support": 183.0
+      },
+      "accuracy": 0.7525951557093425,
+      "macro avg": {
+        "precision": 0.7332908163265306,
+        "recall": 0.6518157294044408,
+        "f1-score": 0.6638373157092018,
+        "support": 578.0
+      },
+      "weighted avg": {
+        "precision": 0.7440042193347928,
+        "recall": 0.7525951557093425,
+        "f1-score": 0.7271930802884268,
+        "support": 578.0
+      }
+    },
+    "per_code": {
+      "AFIB": {
+        "n": 57,
+        "accuracy": 0.8421052631578947,
+        "balanced_accuracy": 0.75,
+        "macro_f1": 0.7816091954022988,
+        "label_counts": {
+          "1": 18,
+          "0": 39
+        },
+        "prediction_counts": {
+          "0": 48,
+          "1": 9
+        }
+      },
+      "ASMI": {
+        "n": 59,
+        "accuracy": 0.8135593220338984,
+        "balanced_accuracy": 0.7493589743589744,
+        "macro_f1": 0.7686274509803921,
+        "label_counts": {
+          "1": 20,
+          "0": 39
+        },
+        "prediction_counts": {
+          "0": 46,
+          "1": 13
+        }
+      },
+      "CLBBB": {
+        "n": 50,
+        "accuracy": 0.96,
+        "balanced_accuracy": 0.9375,
+        "macro_f1": 0.9375,
+        "label_counts": {
+          "1": 10,
+          "0": 40
+        },
+        "prediction_counts": {
+          "1": 10,
+          "0": 40
+        }
+      },
+      "CRBBB": {
+        "n": 59,
+        "accuracy": 0.7627118644067796,
+        "balanced_accuracy": 0.65,
+        "macro_f1": 0.6546822742474916,
+        "label_counts": {
+          "1": 20,
+          "0": 39
+        },
+        "prediction_counts": {
+          "1": 6,
+          "0": 53
+        }
+      },
+      "LAFB": {
+        "n": 60,
+        "accuracy": 0.7166666666666667,
+        "balanced_accuracy": 0.575,
+        "macro_f1": 0.5428059166293142,
+        "label_counts": {
+          "1": 20,
+          "0": 40
+        },
+        "prediction_counts": {
+          "1": 3,
+          "0": 57
+        }
+      },
+      "LVH": {
+        "n": 234,
+        "accuracy": 0.688034188034188,
+        "balanced_accuracy": 0.560709526982012,
+        "macro_f1": 0.5456310679611651,
+        "label_counts": {
+          "1": 76,
+          "0": 158
+        },
+        "prediction_counts": {
+          "1": 27,
+          "0": 207
+        }
+      },
+      "NORM": {
+        "n": 59,
+        "accuracy": 0.711864406779661,
+        "balanced_accuracy": 0.7460526315789473,
+        "macro_f1": 0.7033422064477965,
+        "label_counts": {
+          "1": 19,
+          "0": 40
+        },
+        "prediction_counts": {
+          "1": 30,
+          "0": 29
+        }
+      }
+    }
+  }
+}

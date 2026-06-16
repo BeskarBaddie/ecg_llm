@@ -82,6 +82,7 @@ ProjectCode/
 ├── train_domain_feature_classifiers.py    # Domain-feature classifier validation
 ├── evaluate_domain_feature_llm_baseline.py# Domain-feature LLM baselines
 ├── evaluate_feature_llm_baseline.py       # Compact feature-to-LLM baseline
+├── train_ecg_soft_prompt_adapter.py       # Stage-1 pooled-CSFM soft-prompt adapter prototype
 ├── README.md
 ```
 
@@ -210,6 +211,51 @@ To regenerate the official validation embeddings and subset:
 ```bash
 python build_ecgqa_valid_scp_embeddings.py
 python build_ecgqa_scp_subset.py
+```
+
+---
+
+## Stage-1 Adapter Prototype
+
+The first adapter prototype uses one pooled CSFM embedding per ECG and trains a
+linear soft-prompt projection while keeping the language model frozen:
+
+```text
+CSFM pooled embedding [768]
+        ↓
+Linear projection
+        ↓
+8 soft ECG tokens in the LLM embedding space
+        ↓
+Frozen causal LM + ECG-QA question
+        ↓
+yes/no answer
+```
+
+This local stage is a smoke test for the adapter mechanics, not a clinical
+performance run. It validates `inputs_embeds`, answer-token loss masking,
+adapter-only optimization, checkpointing, and yes/no evaluation before moving
+the same code path to Llama 8B on ARC.
+
+Tiny local smoke test:
+
+```bash
+python train_ecg_soft_prompt_adapter.py \
+  --llm-model sshleifer/tiny-gpt2 \
+  --allow-model-download \
+  --debug-train-limit 8 \
+  --debug-val-limit 8 \
+  --batch-size 2 \
+  --epochs 1 \
+  --device cpu \
+  --eval-mode forced_choice
+```
+
+The default evaluation mode is `forced_choice`, which compares the language
+model likelihood of `yes` vs `no`. Free generation can be tested with:
+
+```bash
+python train_ecg_soft_prompt_adapter.py --eval-mode generate
 ```
 
 ---
